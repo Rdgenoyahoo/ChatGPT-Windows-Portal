@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local machine configuration
+config/portal.env.ps1
+config/secure-tunnel.env.ps1
+profiles/
+
+# Downloaded tools and generated data
+tools/
+screenshots/
+logs/
+*.log
+
+# Editors and Windows
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
+

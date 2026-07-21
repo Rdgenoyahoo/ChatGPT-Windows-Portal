@@ -1,0 +1,58 @@
+name: Windows validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile Python source
+        run: python -m py_compile portal/server.py
+
+      - name: Verify tools and safe defaults
+        run: python scripts/self_check.py
+
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
+            $null = [scriptblock]::Create((Get-Content $_.FullName -Raw))
+          }
+
+      - name: Scan for machine-specific values
+        shell: pwsh
+        run: |
+          $needles = @(
+            ("ngrok-free" + ".dev"),
+            ("C:\AI" + "\Relay"),
+            ("Robert" + "'s PC")
+          )
+          $files = Get-ChildItem -Recurse -File | Where-Object { $_.FullName -notmatch '\\.git\\' }
+          foreach ($needle in $needles) {
+            $hits = $files | Select-String -SimpleMatch $needle
+            if ($hits) {
+              $hits | Format-Table -AutoSize
+              throw "Found forbidden machine-specific value: $needle"
+            }
+          }
