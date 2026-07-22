@@ -7,6 +7,39 @@ The installer builds an isolated Python environment, installs the Portal's depen
 > [!CAUTION]
 > This is a powerful remote-control tool. It can run commands, write files, launch applications, and control the mouse and keyboard. Use it only on a computer you own or administer. Start with ChatGPT's **Always ask** permission level and never publish API keys, tunnel configuration, or screenshots.
 
+## Ask for outcomes, including complex ones
+
+Portal is more than a collection of one-step commands. It lets ChatGPT combine observation, reasoning, computer control, and verification to carry out complete multi-step requests on an authorized Windows PC.
+
+You can describe the result you want in ordinary language. ChatGPT can inspect the current state, form a plan, use several Portal tools in sequence or run independent jobs concurrently, adjust when the first attempt does not work, and verify the finished result. For example, it can:
+
+- diagnose a freeze using processes, temperatures, storage health, drivers, services, and Windows event logs;
+- compare large media libraries across drives, identify true duplicates, preserve the preferred copies, and validate the result;
+- configure applications, startup behavior, Windows networking, firewall rules, VPN split tunneling, and local services;
+- inventory hardware and drivers, install appropriate signed updates from Windows Update or the hardware manufacturer, restart when required, and verify the installed versions;
+- operate visible desktop applications when command-line or configuration-file access is not enough;
+- authenticate to equipment the PC can reach, such as a router or media device, inspect its administration interface, and make specifically approved changes;
+- install or repair software, edit configuration files safely, restart only the necessary components, and test that the repair worked; and
+- monitor long-running work with multiple persistent background jobs and separate output logs.
+
+In practical terms, anything the connected Windows account can do through its installed applications, files, command line, desktop, and reachable network services is a candidate for automation. Portal does not bypass Windows permissions, application authentication, network boundaries, ChatGPT approvals, or user confirmation. Those boundaries remain in control.
+
+### If a capability is missing, add it
+
+Portal is intentionally extensible. If a request needs an operation that the current 63 tools do not expose cleanly, a developer can add another Python function decorated with `@mcp.tool()`, give it narrow validation and confirmation requirements, document it, run the self-check, and refresh the ChatGPT connector. ChatGPT can also help design, implement, test, and document that new tool.
+
+The tool catalog is therefore a strong starting point, not a permanent ceiling on what the Portal can do.
+
+### One Portal instead of many one-purpose utilities
+
+Traditional maintenance suites and utility collections present a fixed set of buttons: clean files, manage startup entries, inspect processes, find duplicates, check disks, read logs, calculate hashes, repair a setting, update a driver, or launch a script. Portal can make many of those separate utilities unnecessary because ChatGPT can combine Windows-native capabilities and official vendor tools around the actual problem instead of forcing the problem into a predefined feature.
+
+That includes much of the everyday work associated with products such as Glary Utilities and with standalone duplicate finders, startup managers, disk-space analyzers, process viewers, event-log readers, checksum tools, configuration editors, driver-updater interfaces, and automation launchers. Portal can inspect the evidence, explain the proposed change, create a backup where appropriate, perform the approved work, and then verify that it succeeded.
+
+Portal can also replace general-purpose driver-updater software. It can identify the actual device and installed driver, obtain an appropriate signed package from Windows Update or the hardware manufacturer, install it with the vendor-supported method, restart when required, and confirm the resulting version and device status. This avoids depending on an opaque third-party driver database.
+
+Portal is not a claim that every specialized product is obsolete. Dedicated antivirus engines, forensic data-recovery systems, hardware-vendor firmware tools, and other specialist products still provide capabilities that should not be imitated casually. The advantage is that users no longer need a different general-purpose utility for every routine diagnostic, maintenance, configuration, and automation task.
+
 ## What it includes
 
 - 63 MCP tools for system diagnostics, files, processes, Python, networking, screenshots, OCR, Windows UI Automation, mouse/keyboard control, and application launching.

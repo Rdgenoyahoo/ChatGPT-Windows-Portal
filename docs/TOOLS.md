@@ -2,6 +2,16 @@
 
 The server currently registers 63 MCP tools.
 
+## Tools become complete workflows
+
+ChatGPT can orchestrate these tools instead of treating them as isolated commands. A complex request may involve observing the PC, gathering evidence, choosing a safe approach, running several operations sequentially or concurrently, handling an unexpected result, and verifying the outcome. Users can ask for the result they want without translating the task into individual tool calls first.
+
+Portal can work across the command line and visible desktop, and it can reach authenticated local services available to the Windows PC. Actual access remains limited by the Windows account, network reachability, application credentials, ChatGPT permissions, and the confirmation requirements documented below.
+
+## Adding a missing capability
+
+The catalog is extensible. A new operation can be exposed by adding a focused Python function to `portal/server.py` and decorating it with `@mcp.tool()`. New tools should validate paths and inputs, require explicit confirmation for mutations, avoid returning secrets, include a useful docstring, and be added to this catalog. Run `scripts/self_check.py` and the Windows validation workflow before publishing the change, then refresh the ChatGPT connector so its tool schema is updated.
+
 ## Portal and system status
 
 - `hello`
