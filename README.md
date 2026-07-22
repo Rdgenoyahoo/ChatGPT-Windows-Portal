@@ -1,5 +1,9 @@
 # ChatGPT Windows Portal
 
+> **No more troubleshooting. Tell ChatGPT to find and fix the issue, then walk away.**
+
+Portal investigates the problem, performs permission-controlled actions, and verifies the result.
+
 A Windows MCP server that gives ChatGPT permission-controlled tools for troubleshooting software, working with files, running diagnostics, and operating the visible desktop.
 
 The installer builds an isolated Python environment, installs the Portal's dependencies, adds optional OCR support, and creates a desktop shortcut. The recommended connection uses [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels), so the MCP server stays on `127.0.0.1` and is not exposed directly to the public internet.
