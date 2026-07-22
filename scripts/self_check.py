@@ -22,6 +22,16 @@ def main() -> int:
         "read_text_file",
         "write_text_file",
         "run_powershell",
+        "list_available_paths",
+        "path_access",
+        "read_text_range",
+        "hash_file",
+        "start_job",
+        "list_jobs",
+        "job_status",
+        "job_output",
+        "stop_job",
+        "delete_job",
         "capture_screen",
         "desktop_windows",
         "launch_program",
@@ -30,7 +40,7 @@ def main() -> int:
 
     assert server.HOST == "127.0.0.1", "Default bind host must remain loopback-only."
     assert server.PORT == 8000, "Unexpected default port."
-    assert len(tools) >= 50, f"Expected at least 50 tools, found {len(tools)}."
+    assert len(tools) >= 63, f"Expected at least 63 tools, found {len(tools)}."
     assert not missing, f"Missing required tools: {', '.join(missing)}"
 
     source = Path(server.__file__).read_text(encoding="utf-8")

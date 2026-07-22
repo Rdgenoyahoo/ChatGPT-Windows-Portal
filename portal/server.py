@@ -2435,7 +2435,991 @@ def computer_help() -> dict:
 
 
 
+@mcp.tool()
+def list_available_paths(include_common_folders: bool = True) -> dict:
+    """
+    Lists filesystem roots visible to the Portal Windows account.
+
+    Portal does not impose a drive allowlist: any absolute or relative path
+    visible to this Windows account can be passed to the path-based tools.
+    """
+    try:
+        drives = []
+        partition_by_mount = {}
+
+        if psutil is not None:
+            try:
+                for part in psutil.disk_partitions(all=True):
+                    key = str(part.mountpoint).rstrip("\\/").lower()
+                    partition_by_mount[key] = part
+            except Exception:
+                partition_by_mount = {}
+
+        if os.name == "nt":
+            roots = [Path(f"{chr(code)}:\\") for code in range(ord("A"), ord("Z") + 1)]
+        else:
+            roots = [Path("/")]
+
+        for root in roots:
+            try:
+                if not root.exists():
+                    continue
+
+                usage = shutil.disk_usage(root)
+                key = str(root).rstrip("\\/").lower()
+                part = partition_by_mount.get(key)
+
+                drives.append(
+                    {
+                        "path": str(root),
+                        "accessible": True,
+                        "filesystem": getattr(part, "fstype", "") if part else "",
+                        "device": getattr(part, "device", "") if part else "",
+                        "total_gb": round(usage.total / (1024 ** 3), 2),
+                        "free_gb": round(usage.free / (1024 ** 3), 2),
+                        "readable": os.access(root, os.R_OK),
+                        "writable": os.access(root, os.W_OK),
+                    }
+                )
+            except Exception as e:
+                drives.append(
+                    {
+                        "path": str(root),
+                        "accessible": False,
+                        "error": str(e),
+                    }
+                )
+
+        common_folders = []
+        if include_common_folders:
+            candidates = [
+                ("home", Path.home()),
+                ("desktop", Path.home() / "Desktop"),
+                ("documents", Path.home() / "Documents"),
+                ("downloads", Path.home() / "Downloads"),
+                ("pictures", Path.home() / "Pictures"),
+                ("videos", Path.home() / "Videos"),
+                ("portal", PORTAL_HOME),
+            ]
+
+            for name, folder in candidates:
+                common_folders.append(
+                    {
+                        "name": name,
+                        "path": str(folder),
+                        "exists": folder.exists(),
+                        "readable": folder.exists() and os.access(folder, os.R_OK),
+                        "writable": folder.exists() and os.access(folder, os.W_OK),
+                    }
+                )
+
+        return {
+            "ok": True,
+            "path_policy": (
+                "No Portal drive allowlist. Paths are limited only by what the "
+                "Portal Windows account and operating system can access."
+            ),
+            "working_directory": os.getcwd(),
+            "drives": drives,
+            "common_folders": common_folders,
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+        }
+
+
+@mcp.tool()
+def path_access(path: str) -> dict:
+    """
+    Resolves a path and reports whether the Portal account can access it.
+    This check does not create, change, or delete anything.
+    """
+    try:
+        p = resolve_path(path)
+        exists = p.exists()
+        probe = p if exists else p.parent
+
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+
+        result = {
+            "ok": True,
+            "requested_path": path,
+            "resolved_path": str(p),
+            "exists": exists,
+            "nearest_existing_parent": str(probe),
+            "parent_readable": os.access(probe, os.R_OK),
+            "parent_writable": os.access(probe, os.W_OK),
+        }
+
+        if exists:
+            st = p.stat()
+            result.update(
+                {
+                    "is_file": p.is_file(),
+                    "is_directory": p.is_dir(),
+                    "readable": os.access(p, os.R_OK),
+                    "writable": os.access(p, os.W_OK),
+                    "size_bytes": st.st_size,
+                    "created": time.strftime(
+                        "%Y-%m-%d %H:%M:%S", time.localtime(st.st_ctime)
+                    ),
+                    "modified": time.strftime(
+                        "%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)
+                    ),
+                }
+            )
+
+        return result
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "requested_path": path,
+            "error": str(e),
+        }
+
+
+@mcp.tool()
+def read_text_range(
+    path: str,
+    start_line: int = 1,
+    max_lines: int = 500,
+    max_chars: int = 50000,
+) -> dict:
+    """
+    Reads a bounded line range from a text file on any accessible path.
+    Use next_start_line to continue through files larger than one tool result.
+    """
+    try:
+        p = resolve_path(path)
+        start_line = max(1, int(start_line))
+        max_lines = max(1, min(int(max_lines), 5000))
+        max_chars = max(1, min(int(max_chars), 100000))
+
+        if not p.exists():
+            return {
+                "ok": False,
+                "path": str(p),
+                "error": "File does not exist.",
+            }
+
+        if not p.is_file():
+            return {
+                "ok": False,
+                "path": str(p),
+                "error": "Path is not a file.",
+            }
+
+        selected = []
+        chars = 0
+        end_line = start_line - 1
+        has_more = False
+        partial_line = False
+
+        with open(p, "r", encoding="utf-8", errors="replace") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if line_number < start_line:
+                    continue
+
+                if len(selected) >= max_lines:
+                    has_more = True
+                    break
+
+                if chars + len(line) > max_chars:
+                    if not selected:
+                        selected.append(line[:max_chars])
+                        chars = max_chars
+                        end_line = line_number
+                        partial_line = True
+                    has_more = True
+                    break
+
+                selected.append(line)
+                chars += len(line)
+                end_line = line_number
+
+        if has_more:
+            next_start_line = end_line if partial_line else end_line + 1
+        else:
+            next_start_line = None
+
+        return {
+            "ok": True,
+            "path": str(p),
+            "start_line": start_line,
+            "end_line": end_line,
+            "lines_returned": len(selected),
+            "chars_returned": chars,
+            "has_more": has_more,
+            "next_start_line": next_start_line,
+            "partial_line": partial_line,
+            "content": "".join(selected),
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+        }
+
+
+@mcp.tool()
+def hash_file(
+    path: str,
+    algorithm: str = "sha256",
+    chunk_size_mb: int = 8,
+) -> dict:
+    """Hashes a file on any accessible path without changing it."""
+    try:
+        import hashlib
+
+        p = resolve_path(path)
+        algorithm = str(algorithm).strip().lower()
+        allowed_algorithms = {"md5", "sha1", "sha256", "sha512"}
+
+        if algorithm not in allowed_algorithms:
+            return {
+                "ok": False,
+                "error": "algorithm must be one of: md5, sha1, sha256, sha512.",
+            }
+
+        if not p.exists():
+            return {
+                "ok": False,
+                "path": str(p),
+                "error": "File does not exist.",
+            }
+
+        if not p.is_file():
+            return {
+                "ok": False,
+                "path": str(p),
+                "error": "Path is not a file.",
+            }
+
+        chunk_size_mb = max(1, min(int(chunk_size_mb), 64))
+        digest = hashlib.new(algorithm)
+        started = time.perf_counter()
+
+        with open(p, "rb") as handle:
+            while True:
+                chunk = handle.read(chunk_size_mb * 1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+
+        elapsed = time.perf_counter() - started
+
+        return {
+            "ok": True,
+            "path": str(p),
+            "algorithm": algorithm,
+            "hash": digest.hexdigest(),
+            "size_bytes": p.stat().st_size,
+            "elapsed_seconds": round(elapsed, 3),
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+        }
+
+
+# Persistent multi-process job manager.
+# Each job runs in its own worker process and writes separate metadata/output files.
+import json as _job_json
+import re as _job_re
+import uuid as _job_uuid
+
+JOB_ROOT = Path(os.getenv("PORTAL_JOB_DIR", str(PORTAL_HOME / "jobs"))).resolve()
+_JOB_ID_PATTERN = _job_re.compile(r"^[0-9]{8}_[0-9]{6}_[a-f0-9]{8}$")
+_JOB_TERMINAL_STATES = {"completed", "failed", "stopped", "timed_out", "orphaned"}
+
+
+def _job_now():
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
+
+
+def _job_dir(job_id):
+    job_id = str(job_id).strip().lower()
+
+    if not _JOB_ID_PATTERN.fullmatch(job_id):
+        raise ValueError("Invalid job ID.")
+
+    root = JOB_ROOT.resolve()
+    folder = (root / job_id).resolve()
+
+    if root not in folder.parents:
+        raise ValueError("Job path escaped the job root.")
+
+    return folder
+
+
+def _job_meta_path(job_id):
+    return _job_dir(job_id) / "job.json"
+
+
+def _job_write_meta(job_id, data):
+    folder = _job_dir(job_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    destination = folder / "job.json"
+    temporary = folder / "job.json.tmp"
+
+    with open(temporary, "w", encoding="utf-8") as handle:
+        _job_json.dump(data, handle, indent=2, ensure_ascii=False)
+
+    os.replace(temporary, destination)
+
+
+def _job_read_meta(job_id):
+    path = _job_meta_path(job_id)
+
+    if not path.exists():
+        raise FileNotFoundError(f"Unknown job ID: {job_id}")
+
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        return _job_json.load(handle)
+
+
+def _job_process_alive(pid, expected_create_time=None):
+    if not pid:
+        return False
+
+    if psutil is None:
+        return None
+
+    try:
+        proc = psutil.Process(int(pid))
+
+        if expected_create_time is not None:
+            if abs(proc.create_time() - float(expected_create_time)) > 2.0:
+                return False
+
+        zombie = getattr(psutil, "STATUS_ZOMBIE", "zombie")
+        return proc.is_running() and proc.status() != zombie
+    except Exception:
+        return False
+
+
+def _job_tail(path, lines=100, max_chars=20000):
+    lines = max(1, min(int(lines), 5000))
+    max_chars = max(1, min(int(max_chars), 100000))
+    p = Path(path)
+
+    if not p.exists() or not p.is_file():
+        return ""
+
+    try:
+        read_bytes = max_chars * 4
+
+        with open(p, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - read_bytes), os.SEEK_SET)
+            data = handle.read()
+
+        text = data.decode("utf-8", errors="replace")
+        selected = "\n".join(text.splitlines()[-lines:])
+        return selected[-max_chars:]
+    except Exception as e:
+        return f"[Could not read job output: {e}]"
+
+
+def _job_snapshot(meta, include_output=False, tail_lines=40, max_chars=12000):
+    result = dict(meta)
+    worker_alive = _job_process_alive(
+        meta.get("worker_pid"),
+        meta.get("worker_create_time"),
+    )
+    process_alive = _job_process_alive(
+        meta.get("process_pid"),
+        meta.get("process_create_time"),
+    )
+
+    result["worker_alive"] = worker_alive
+    result["process_alive"] = process_alive
+    result["effective_status"] = meta.get("status", "unknown")
+
+    if (
+        result["effective_status"] in {"starting", "running", "stopping"}
+        and worker_alive is False
+        and process_alive is False
+    ):
+        result["effective_status"] = "orphaned"
+        result["warning"] = (
+            "Neither the worker nor command process is running, but no normal "
+            "completion record was written."
+        )
+
+    if include_output:
+        result["stdout_tail"] = _job_tail(
+            meta.get("stdout_path", ""),
+            lines=tail_lines,
+            max_chars=max_chars,
+        )
+        result["stderr_tail"] = _job_tail(
+            meta.get("stderr_path", ""),
+            lines=tail_lines,
+            max_chars=max_chars,
+        )
+
+    return result
+
+
+def _run_portal_job_worker(job_id):
+    try:
+        meta = _job_read_meta(job_id)
+    except Exception:
+        return 2
+
+    folder = _job_dir(job_id)
+    stdout_path = folder / "stdout.log"
+    stderr_path = folder / "stderr.log"
+    worker_pid = os.getpid()
+    worker_create_time = None
+
+    if psutil is not None:
+        try:
+            worker_create_time = psutil.Process(worker_pid).create_time()
+        except Exception:
+            pass
+
+    meta.update(
+        {
+            "status": "running",
+            "worker_pid": worker_pid,
+            "worker_create_time": worker_create_time,
+            "started_at": _job_now(),
+        }
+    )
+    _job_write_meta(job_id, meta)
+
+    shell = meta.get("shell", "powershell")
+    command = meta.get("command", "")
+    cwd = meta.get("cwd") or str(PORTAL_HOME)
+    timeout_seconds = int(meta.get("timeout_seconds", 0) or 0)
+
+    if shell == "powershell":
+        args = [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            command,
+        ]
+    else:
+        args = [
+            "cmd.exe",
+            "/d",
+            "/c",
+            command,
+        ]
+
+    creation_flags = 0
+    if os.name == "nt":
+        creation_flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        creation_flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    final_status = "failed"
+    exit_code = None
+    error = None
+
+    try:
+        with open(stdout_path, "ab", buffering=0) as stdout_handle:
+            with open(stderr_path, "ab", buffering=0) as stderr_handle:
+                proc = subprocess.Popen(
+                    args,
+                    cwd=cwd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
+                    creationflags=creation_flags,
+                )
+
+                process_create_time = None
+                if psutil is not None:
+                    try:
+                        process_create_time = psutil.Process(proc.pid).create_time()
+                    except Exception:
+                        pass
+
+                meta = _job_read_meta(job_id)
+                meta.update(
+                    {
+                        "status": "running",
+                        "process_pid": proc.pid,
+                        "process_create_time": process_create_time,
+                    }
+                )
+                _job_write_meta(job_id, meta)
+
+                try:
+                    if timeout_seconds > 0:
+                        exit_code = proc.wait(timeout=timeout_seconds)
+                    else:
+                        exit_code = proc.wait()
+
+                    final_status = "completed" if exit_code == 0 else "failed"
+
+                except subprocess.TimeoutExpired:
+                    final_status = "timed_out"
+                    error = f"Job exceeded its {timeout_seconds}-second timeout."
+
+                    if os.name == "nt":
+                        subprocess.run(
+                            [
+                                "taskkill.exe",
+                                "/PID",
+                                str(proc.pid),
+                                "/T",
+                                "/F",
+                            ],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=30,
+                        )
+                    else:
+                        proc.kill()
+
+                    try:
+                        exit_code = proc.wait(timeout=10)
+                    except Exception:
+                        exit_code = None
+
+    except Exception as e:
+        error = str(e)
+
+        try:
+            with open(stderr_path, "a", encoding="utf-8", errors="replace") as handle:
+                handle.write(f"\nPortal job worker error: {e}\n")
+        except Exception:
+            pass
+
+    try:
+        meta = _job_read_meta(job_id)
+
+        if meta.get("status") != "stopped":
+            meta.update(
+                {
+                    "status": final_status,
+                    "exit_code": exit_code,
+                    "finished_at": _job_now(),
+                }
+            )
+
+            if error:
+                meta["error"] = error
+
+            _job_write_meta(job_id, meta)
+    except Exception:
+        pass
+
+    return 0 if final_status == "completed" else 1
+
+
+@mcp.tool()
+def start_job(
+    command: str,
+    shell: str = "powershell",
+    cwd: str = "",
+    timeout_seconds: int = 0,
+    confirm: str = "",
+) -> dict:
+    """
+    Starts an independently monitored background job and returns immediately.
+
+    Use confirm='START_JOB' for read-only commands.
+    Commands detected as mutating require confirm='START_MUTATING_JOB'.
+    Blocked destructive commands are always refused.
+    timeout_seconds=0 means no automatic timeout; otherwise the maximum is 86400.
+    """
+    try:
+        command = str(command).strip()
+        shell = str(shell).strip().lower()
+
+        if not command:
+            return {
+                "ok": False,
+                "error": "No command provided.",
+            }
+
+        if shell not in {"powershell", "cmd"}:
+            return {
+                "ok": False,
+                "error": "shell must be 'powershell' or 'cmd'.",
+            }
+
+        if command_is_blocked(command):
+            return {
+                "ok": False,
+                "error": "Blocked dangerous command.",
+            }
+
+        needs_mutating_confirm = command_needs_confirm(command)
+        expected_confirm = (
+            "START_MUTATING_JOB" if needs_mutating_confirm else "START_JOB"
+        )
+
+        if confirm != expected_confirm:
+            return {
+                "ok": False,
+                "error": f"Refusing to start job. Use confirm='{expected_confirm}'.",
+                "mutating_command_detected": needs_mutating_confirm,
+            }
+
+        cwd_path = resolve_path(cwd or str(PORTAL_HOME))
+
+        if not cwd_path.exists() or not cwd_path.is_dir():
+            return {
+                "ok": False,
+                "error": "Working directory does not exist or is not a directory.",
+                "cwd": str(cwd_path),
+            }
+
+        timeout_seconds = max(0, min(int(timeout_seconds), 86400))
+        JOB_ROOT.mkdir(parents=True, exist_ok=True)
+        job_id = (
+            time.strftime("%Y%m%d_%H%M%S", time.localtime())
+            + "_"
+            + _job_uuid.uuid4().hex[:8]
+        )
+        folder = _job_dir(job_id)
+        folder.mkdir(parents=True, exist_ok=False)
+        stdout_path = folder / "stdout.log"
+        stderr_path = folder / "stderr.log"
+
+        stdout_path.touch()
+        stderr_path.touch()
+
+        meta = {
+            "job_id": job_id,
+            "status": "starting",
+            "command": command,
+            "shell": shell,
+            "cwd": str(cwd_path),
+            "timeout_seconds": timeout_seconds,
+            "created_at": _job_now(),
+            "started_at": None,
+            "finished_at": None,
+            "worker_pid": None,
+            "worker_create_time": None,
+            "process_pid": None,
+            "process_create_time": None,
+            "exit_code": None,
+            "stdout_path": str(stdout_path),
+            "stderr_path": str(stderr_path),
+        }
+        _job_write_meta(job_id, meta)
+
+        creation_flags = 0
+        if os.name == "nt":
+            creation_flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            creation_flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+        worker = subprocess.Popen(
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "--run-portal-job",
+                job_id,
+            ],
+            cwd=str(cwd_path),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            creationflags=creation_flags,
+        )
+
+        worker_create_time = None
+        if psutil is not None:
+            try:
+                worker_create_time = psutil.Process(worker.pid).create_time()
+            except Exception:
+                pass
+
+        meta["worker_pid"] = worker.pid
+        meta["worker_create_time"] = worker_create_time
+        _job_write_meta(job_id, meta)
+
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "status": "starting",
+            "worker_pid": worker.pid,
+            "stdout_path": str(stdout_path),
+            "stderr_path": str(stderr_path),
+            "message": "Background job started. Use job_status or job_output to monitor it.",
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+        }
+
+
+@mcp.tool()
+def list_jobs(
+    status_filter: str = "",
+    max_results: int = 100,
+) -> dict:
+    """Lists persistent background jobs, newest first."""
+    try:
+        status_filter = str(status_filter).strip().lower()
+        max_results = max(1, min(int(max_results), 1000))
+
+        if not JOB_ROOT.exists():
+            return {
+                "ok": True,
+                "count": 0,
+                "jobs": [],
+                "job_root": str(JOB_ROOT),
+            }
+
+        jobs = []
+
+        for folder in sorted(JOB_ROOT.iterdir(), key=lambda p: p.name, reverse=True):
+            if not folder.is_dir() or not _JOB_ID_PATTERN.fullmatch(folder.name):
+                continue
+
+            try:
+                snapshot = _job_snapshot(_job_read_meta(folder.name))
+
+                if status_filter and snapshot.get("effective_status") != status_filter:
+                    continue
+
+                jobs.append(snapshot)
+
+                if len(jobs) >= max_results:
+                    break
+            except Exception:
+                continue
+
+        return {
+            "ok": True,
+            "count": len(jobs),
+            "jobs": jobs,
+            "job_root": str(JOB_ROOT),
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+        }
+
+
+@mcp.tool()
+def job_status(
+    job_id: str,
+    include_output: bool = True,
+    tail_lines: int = 40,
+    max_chars: int = 12000,
+) -> dict:
+    """Returns live status and optional output tails for one background job."""
+    try:
+        meta = _job_read_meta(job_id)
+        result = _job_snapshot(
+            meta,
+            include_output=bool(include_output),
+            tail_lines=tail_lines,
+            max_chars=max_chars,
+        )
+        result["ok"] = True
+        return result
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "job_id": job_id,
+            "error": str(e),
+        }
+
+
+@mcp.tool()
+def job_output(
+    job_id: str,
+    stream: str = "both",
+    lines: int = 200,
+    max_chars: int = 30000,
+) -> dict:
+    """Reads bounded stdout and/or stderr tails from a background job."""
+    try:
+        meta = _job_read_meta(job_id)
+        stream = str(stream).strip().lower()
+
+        if stream not in {"stdout", "stderr", "both"}:
+            return {
+                "ok": False,
+                "error": "stream must be 'stdout', 'stderr', or 'both'.",
+            }
+
+        result = {
+            "ok": True,
+            "job_id": job_id,
+            "status": meta.get("status"),
+            "stream": stream,
+        }
+
+        if stream in {"stdout", "both"}:
+            result["stdout"] = _job_tail(
+                meta.get("stdout_path", ""),
+                lines=lines,
+                max_chars=max_chars,
+            )
+
+        if stream in {"stderr", "both"}:
+            result["stderr"] = _job_tail(
+                meta.get("stderr_path", ""),
+                lines=lines,
+                max_chars=max_chars,
+            )
+
+        return result
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "job_id": job_id,
+            "error": str(e),
+        }
+
+
+@mcp.tool()
+def stop_job(job_id: str, confirm: str = "") -> dict:
+    """
+    Stops only the process tree recorded for one Portal job.
+    Requires confirm='STOP_JOB'.
+    """
+    try:
+        if confirm != "STOP_JOB":
+            return {
+                "ok": False,
+                "error": "Refusing to stop job. Use confirm='STOP_JOB'.",
+            }
+
+        meta = _job_read_meta(job_id)
+        snapshot = _job_snapshot(meta)
+
+        if snapshot.get("effective_status") in _JOB_TERMINAL_STATES:
+            return {
+                "ok": True,
+                "job_id": job_id,
+                "status": snapshot.get("effective_status"),
+                "message": "Job is not running.",
+            }
+
+        targets = []
+        for pid_key, time_key in [
+            ("worker_pid", "worker_create_time"),
+            ("process_pid", "process_create_time"),
+        ]:
+            pid = meta.get(pid_key)
+            create_time = meta.get(time_key)
+
+            if pid and _job_process_alive(pid, create_time):
+                targets.append(int(pid))
+
+        stopped = []
+
+        for pid in targets:
+            try:
+                if os.name == "nt":
+                    result = subprocess.run(
+                        [
+                            "taskkill.exe",
+                            "/PID",
+                            str(pid),
+                            "/T",
+                            "/F",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+
+                    if result.returncode == 0:
+                        stopped.append(pid)
+                elif psutil is not None:
+                    psutil.Process(pid).kill()
+                    stopped.append(pid)
+            except Exception:
+                pass
+
+        meta = _job_read_meta(job_id)
+        meta.update(
+            {
+                "status": "stopped",
+                "finished_at": _job_now(),
+                "stopped_pids": stopped,
+            }
+        )
+        _job_write_meta(job_id, meta)
+
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "status": "stopped",
+            "stopped_pids": stopped,
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "job_id": job_id,
+            "error": str(e),
+        }
+
+
+@mcp.tool()
+def delete_job(job_id: str, confirm: str = "") -> dict:
+    """
+    Deletes the metadata and logs for a finished Portal job.
+    Requires confirm='DELETE_JOB'. Running jobs cannot be deleted.
+    """
+    try:
+        if confirm != "DELETE_JOB":
+            return {
+                "ok": False,
+                "error": "Refusing to delete job record. Use confirm='DELETE_JOB'.",
+            }
+
+        meta = _job_read_meta(job_id)
+        snapshot = _job_snapshot(meta)
+
+        if snapshot.get("worker_alive") or snapshot.get("process_alive"):
+            return {
+                "ok": False,
+                "job_id": job_id,
+                "error": "Job is still running. Stop it first.",
+            }
+
+        folder = _job_dir(job_id)
+        shutil.rmtree(folder)
+
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "deleted_path": str(folder),
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "job_id": job_id,
+            "error": str(e),
+        }
+
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--run-portal-job":
+        sys.exit(_run_portal_job_worker(sys.argv[2]))
     print("About to start MCP...")
     print(f"Local MCP URL: http://127.0.0.1:{PORT}/mcp")
     if HOSTNAME:

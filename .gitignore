@@ -12,6 +12,7 @@ profiles/
 tools/
 screenshots/
 logs/
+jobs/
 *.log
 
 # Editors and Windows

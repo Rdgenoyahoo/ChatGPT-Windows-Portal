@@ -48,6 +48,12 @@ Never commit or post:
 
 The `environment_variables` tool redacts variable names containing common secret terms, but no heuristic can catch every secret.
 
+## Background job records
+
+Background jobs persist command metadata and stdout/stderr logs in the configured jobs directory. Those files may contain paths, command output, or other sensitive information. The directory is ignored by Git, but operators should still review and delete finished job records when they are no longer needed.
+
+Job stop operations validate the recorded process identity before terminating its process tree. Confirmation strings remain convenience interlocks and do not replace endpoint authentication or ChatGPT approval settings.
+
 ## Reporting a vulnerability
 
 Do not open a public issue with exploit details or live credentials. Use GitHub's private vulnerability reporting feature if it is enabled for the repository. Include a minimal reproduction with all identities, keys, endpoints, paths, and personal data removed.

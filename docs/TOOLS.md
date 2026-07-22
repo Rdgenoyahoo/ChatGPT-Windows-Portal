@@ -1,6 +1,6 @@
 # Tool catalog
 
-The server currently registers 53 MCP tools.
+The server currently registers 63 MCP tools.
 
 ## Portal and system status
 
@@ -22,6 +22,10 @@ The server currently registers 53 MCP tools.
 - `tail_text_file`
 - `find_files`
 - `search_text_in_files`
+- `list_available_paths`
+- `path_access`
+- `read_text_range`
+- `hash_file`
 - `write_text_file` — requires `confirm='WRITE_FILE'`
 - `append_text_file` — requires `confirm='APPEND_FILE'`
 
@@ -34,6 +38,17 @@ The server currently registers 53 MCP tools.
 - `python_version`
 - `python_import_check`
 - `pip_list`
+
+### Persistent background jobs
+
+- `start_job` — requires `START_JOB` for read-only commands or `START_MUTATING_JOB` when mutation is detected
+- `list_jobs`
+- `job_status`
+- `job_output`
+- `stop_job` — requires `STOP_JOB`
+- `delete_job` — requires `DELETE_JOB`
+
+Each background job runs in an independent worker and stores bounded metadata plus separate stdout/stderr logs under the configured job directory. Multiple jobs can run concurrently. Use a timeout for unattended work and delete finished records when their logs are no longer needed.
 
 The command tools reject a small set of dangerous system-wide commands. Commands that appear mutating require `confirm='RUN_MUTATING_COMMAND'`. This is a convenience interlock, not a substitute for endpoint security or ChatGPT approval settings.
 
@@ -79,4 +94,3 @@ These window actions do not currently require the confirmation value but do chan
 - `launch_program` — requires `confirm='LAUNCH_PROGRAM'`
 - `launch_start_app` — requires `confirm='LAUNCH_PROGRAM'`
 - `computer_help`
-

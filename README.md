@@ -9,7 +9,8 @@ The installer builds an isolated Python environment, installs the Portal's depen
 
 ## What it includes
 
-- 53 MCP tools for system diagnostics, files, processes, Python, networking, screenshots, OCR, Windows UI Automation, mouse/keyboard control, and application launching.
+- 63 MCP tools for system diagnostics, files, processes, Python, networking, screenshots, OCR, Windows UI Automation, mouse/keyboard control, and application launching.
+- Persistent concurrent background jobs with per-job process tracking, timeouts, status, and separate output logs.
 - Local-only defaults: `127.0.0.1:8000/mcp` with DNS-rebinding protection.
 - A double-click Windows installer and desktop shortcut.
 - A checksum-verified downloader for the official OpenAI `tunnel-client` Windows release.
@@ -122,6 +123,7 @@ Start with read-only requests:
 - `List the top-level files in C:\AI without changing anything.`
 - `Show which Python executable and packages this program is using.`
 - `Capture the desktop and tell me which application windows are open.`
+- `Run two read-only diagnostics as background jobs and show each status and output separately.`
 
 Then approve changes deliberately:
 
@@ -129,7 +131,7 @@ Then approve changes deliberately:
 - `Launch the application from this exact path.`
 - `Bring the named window forward and click its Save button.`
 
-Several mutating tools also require an explicit confirmation value such as `WRITE_FILE`, `RUN_MUTATING_COMMAND`, `CONTROL_DESKTOP`, or `LAUNCH_PROGRAM`. These are safety interlocks for normal use; transport security and ChatGPT permissions remain essential.
+Mutating tools use explicit confirmation strings such as WRITE_FILE, RUN_MUTATING_COMMAND, START_MUTATING_JOB, STOP_JOB, CONTROL_DESKTOP, and LAUNCH_PROGRAM. These are safety interlocks for normal use; transport security and ChatGPT permissions remain essential.
 
 ## Tool groups
 
@@ -139,6 +141,7 @@ Several mutating tools also require an explicit confirmation value such as `WRIT
 | Files | list, inspect, read, tail, find, search | No |
 | File changes | write and append with optional backup | Yes |
 | Commands | PowerShell, cmd, Python, pip | Sometimes |
+| Background jobs | start, list, monitor, read output, stop, and delete records | Sometimes |
 | Desktop vision | screenshot, window capture, OCR, image/text search | No |
 | Desktop control | mouse, keyboard, UI Automation, window management | Yes |
 | Programs | launch executable or Start-menu app | Yes |
@@ -155,6 +158,7 @@ Setup copies `config/portal.env.example.ps1` to the ignored file `config/portal.
 | `PORTAL_BIND_HOST` | `127.0.0.1` | MCP listener address |
 | `PORTAL_PORT` | `8000` | MCP listener port |
 | `PORTAL_SCREENSHOT_DIR` | `screenshots` | Saved screenshots |
+| `PORTAL_JOB_DIR` | `jobs` | Persistent job metadata and output logs |
 | `PORTAL_TESSERACT_PATH` | standard Program Files path | OCR executable |
 | `PORTAL_PUBLIC_HOSTNAME` | blank | Optional hostname for an intentionally secured reverse proxy |
 
